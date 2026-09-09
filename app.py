@@ -226,6 +226,83 @@ def _build_archetypes(shares: dict[str, float]) -> list[ArchetypeProfile]:
 
 
 # ---------------------------------------------------------------------------
+# Cached Computation Functions (@st.cache_data)
+# ---------------------------------------------------------------------------
+
+@st.cache_data(show_spinner=False)
+def cached_run_simulation(sim_config: SimulationConfig, eco_config: EconomyConfig) -> dict:
+    """Run baseline simulation and cache results to prevent redundant runs on widget interaction."""
+    return run_simulation(sim_config, eco_config)
+
+
+@st.cache_data(show_spinner=False)
+def cached_run_scenario_matrix(base_sim: SimulationConfig, base_eco: EconomyConfig) -> dict:
+    """Run 4-scenario stress-test matrix with caching."""
+    return run_scenario_matrix(base_sim_config=base_sim, base_eco_config=base_eco)
+
+
+@st.cache_data(show_spinner=False)
+def cached_run_monte_carlo(
+    base_sim: SimulationConfig,
+    base_eco: EconomyConfig,
+    num_runs: int,
+    volatility: float,
+) -> MonteCarloResult:
+    """Run multi-iteration Monte Carlo simulation with caching."""
+    return run_monte_carlo(
+        base_sim_config=base_sim,
+        base_eco_config=base_eco,
+        num_runs=num_runs,
+        volatility=volatility,
+        progress_callback=None,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def cached_tune_parameter(
+    eco_config: EconomyConfig,
+    sim_config: SimulationConfig,
+    param_name: str,
+    search_lo: float,
+    search_hi: float,
+    target_archetype: str,
+    target_tier: int,
+    target_day: int,
+    probe_players: int,
+    max_iterations: int,
+) -> TunerResult:
+    """Run binary search parameter optimizer with caching."""
+    return tune_parameter(
+        eco_config=eco_config,
+        sim_config=sim_config,
+        param_name=param_name,
+        search_lo=search_lo,
+        search_hi=search_hi,
+        target_archetype=target_archetype,
+        target_tier=target_tier,
+        target_day=target_day,
+        probe_players=probe_players,
+        max_iterations=max_iterations,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def cached_tuner_probe(
+    eco_config: EconomyConfig,
+    sim_config: SimulationConfig,
+    param_name: str,
+    param_value: float,
+    target_archetype: str,
+    target_tier: int,
+) -> int | None:
+    """Run single parameter probe with caching."""
+    from analytics.optimizer import _probe as _opt_probe
+    return _opt_probe(
+        eco_config, sim_config, param_name, param_value, target_archetype, target_tier
+    )
+
+
+# ---------------------------------------------------------------------------
 # Session state — run simulation
 # ---------------------------------------------------------------------------
 
@@ -255,7 +332,7 @@ if st.session_state.results is None or run_btn:
         random_seed=int(random_seed),
         stochastic_mode=bool(stochastic_mode),
     )
-    st.session_state.results  = run_simulation(sim_cfg, eco_cfg)
+    st.session_state.results  = cached_run_simulation(sim_cfg, eco_cfg)
     st.session_state.eco_cfg  = eco_cfg
     st.session_state.sim_cfg  = sim_cfg
 
@@ -482,7 +559,7 @@ with tab_scenarios:
 
     if run_scenarios_btn or "scenario_results" not in st.session_state:
         with st.spinner("Simulating all 4 macroeconomic regimes…"):
-            matrix_res = run_scenario_matrix(base_sim_config=sim_cfg, base_eco_config=eco_cfg)
+            matrix_res = cached_run_scenario_matrix(base_sim=sim_cfg, base_eco=eco_cfg)
             st.session_state.scenario_results = matrix_res
 
     m_res = st.session_state.scenario_results
@@ -560,21 +637,15 @@ with tab_monte_carlo:
         run_mc_btn = st.button("Run Monte Carlo Analysis", type="primary", use_container_width=True)
 
     if run_mc_btn:
-        progress_bar = st.progress(0, text="Initializing Monte Carlo risk simulations…")
-
-        def _mc_progress(current: int, total: int):
-            frac = current / total
-            progress_bar.progress(frac, text=f"Executing run {current}/{total}…")
-
         _mc_sim = dataclasses.replace(sim_cfg, num_players=int(mc_players))
-        mc_out = run_monte_carlo(
-            base_sim_config   = _mc_sim,
-            base_eco_config   = eco_cfg,
-            num_runs          = int(mc_runs),
-            volatility        = float(mc_volatility) / 100.0,
-            progress_callback = _mc_progress,
-        )
-        progress_bar.empty()
+        vol_float = float(mc_volatility) / 100.0
+        with st.spinner(f"Simulating {mc_runs} Monte Carlo iterations…"):
+            mc_out = cached_run_monte_carlo(
+                base_sim=_mc_sim,
+                base_eco=eco_cfg,
+                num_runs=int(mc_runs),
+                volatility=vol_float,
+            )
         st.session_state.mc_result = mc_out
 
     if "mc_result" in st.session_state:
@@ -709,7 +780,7 @@ with tab_tuner:
             render_notification_box("Search Lower Bound must be strictly less than Upper Bound.", "error")
         else:
             with st.spinner(f"Binary-searching {tune_param} in [{tune_lo:.1f}, {tune_hi:.1f}]…"):
-                tuner_result: TunerResult = tune_parameter(
+                tuner_result: TunerResult = cached_tune_parameter(
                     eco_config       = eco_cfg,
                     sim_config       = sim_cfg,
                     param_name       = tune_param,
@@ -733,9 +804,8 @@ with tab_tuner:
 
         # Baseline milestone day: run a quick single probe at the original value
         if "tuner_baseline_day" not in st.session_state or run_btn:
-            from analytics.optimizer import _probe as _opt_probe
             _baseline_sim = dataclasses.replace(sim_cfg, num_players=1_000)
-            st.session_state.tuner_baseline_day = _opt_probe(
+            st.session_state.tuner_baseline_day = cached_tuner_probe(
                 eco_cfg, _baseline_sim, tr.param_name,
                 float(old_val) if old_val is not None else 0.0,
                 tr.target_archetype, tr.target_tier,
@@ -810,7 +880,7 @@ with tab_tuner:
                 or st.session_state.get("tuned_param") != tr.param_name
                 or st.session_state.get("tuned_value") != tr.best_value
             ):
-                st.session_state.tuned_results  = run_simulation(_tuned_sim, _tuned_eco)
+                st.session_state.tuned_results  = cached_run_simulation(_tuned_sim, _tuned_eco)
                 st.session_state.tuned_param     = tr.param_name
                 st.session_state.tuned_value     = tr.best_value
 
