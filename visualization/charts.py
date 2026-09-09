@@ -425,3 +425,293 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f"rgba({r},{g},{b},{alpha})"
+
+
+# ---------------------------------------------------------------------------
+# 7. Diagnostic Health Gauges  (v0.3 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_diagnostic_gauges(
+    flow_ratio: float,
+    gini: float,
+    casual_fail_rate: float,
+) -> go.Figure:
+    """
+    Three Plotly Indicator gauges side-by-side visualising the three key
+    diagnostic metrics: Flow Ratio, Gini Coefficient, Casual Fail Rate.
+
+    Parameters
+    ----------
+    flow_ratio        : Income / Sink cumulative ratio.
+    gini              : Final-day Gini coefficient.
+    casual_fail_rate  : Fraction of Casual players who missed Tier-1 target.
+
+    Returns
+    -------
+    go.Figure
+    """
+    fig = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=("Flow Ratio (Income/Sink)", "Gini Coefficient", "Casual T1 Fail Rate"),
+        specs=[[{"type": "indicator"}, {"type": "indicator"}, {"type": "indicator"}]],
+    )
+
+    # ── Flow ratio gauge ─────────────────────────────────
+    # Good zone: 0.9–1.3. Red zones on both ends.
+    if flow_ratio >= 2.0:
+        flow_color = _ACCENT_ROSE
+    elif flow_ratio >= 1.3:
+        flow_color = _ACCENT_AMBER
+    elif flow_ratio >= 0.9:
+        flow_color = _ACCENT_TEAL
+    else:
+        flow_color = _ACCENT_ROSE
+
+    fig.add_trace(go.Indicator(
+        mode="gauge+number+delta",
+        value=round(flow_ratio, 3),
+        delta={"reference": 1.1, "relative": False, "valueformat": ".2f"},
+        number={"valueformat": ".2f", "suffix": "×", "font": {"color": flow_color}},
+        gauge={
+            "axis": {"range": [0, 3.0], "tickformat": ".1f",
+                     "tickcolor": _TEXT, "tickfont": {"color": _TEXT}},
+            "bar": {"color": flow_color, "thickness": 0.25},
+            "bgcolor": _SURFACE,
+            "bordercolor": _GRID,
+            "steps": [
+                {"range": [0, 0.9],   "color": "rgba(248,113,113,0.15)"},
+                {"range": [0.9, 1.3], "color": "rgba(0,201,167,0.12)"},
+                {"range": [1.3, 2.0], "color": "rgba(251,191,36,0.12)"},
+                {"range": [2.0, 3.0], "color": "rgba(248,113,113,0.15)"},
+            ],
+            "threshold": {
+                "line": {"color": _ACCENT_TEAL, "width": 2},
+                "thickness": 0.8,
+                "value": 1.1,
+            },
+        },
+    ), row=1, col=1)
+
+    # ── Gini gauge ────────────────────────────────────────
+    gini_color = _ACCENT_ROSE if gini >= 0.55 else (_ACCENT_AMBER if gini >= 0.40 else _ACCENT_TEAL)
+    fig.add_trace(go.Indicator(
+        mode="gauge+number",
+        value=round(gini, 4),
+        number={"valueformat": ".4f", "font": {"color": gini_color}},
+        gauge={
+            "axis": {"range": [0, 1.0], "tickformat": ".2f",
+                     "tickcolor": _TEXT, "tickfont": {"color": _TEXT}},
+            "bar": {"color": gini_color, "thickness": 0.25},
+            "bgcolor": _SURFACE,
+            "bordercolor": _GRID,
+            "steps": [
+                {"range": [0, 0.40],  "color": "rgba(0,201,167,0.12)"},
+                {"range": [0.40, 0.55], "color": "rgba(251,191,36,0.12)"},
+                {"range": [0.55, 1.0], "color": "rgba(248,113,113,0.15)"},
+            ],
+            "threshold": {
+                "line": {"color": _ACCENT_AMBER, "width": 2},
+                "thickness": 0.8,
+                "value": 0.55,
+            },
+        },
+    ), row=1, col=2)
+
+    # ── Casual fail-rate gauge ────────────────────────────
+    fail_pct = casual_fail_rate * 100
+    fail_color = _ACCENT_ROSE if casual_fail_rate > 0.35 else (_ACCENT_AMBER if casual_fail_rate > 0.15 else _ACCENT_TEAL)
+    fig.add_trace(go.Indicator(
+        mode="gauge+number",
+        value=round(fail_pct, 1),
+        number={"valueformat": ".1f", "suffix": "%", "font": {"color": fail_color}},
+        gauge={
+            "axis": {"range": [0, 100], "ticksuffix": "%",
+                     "tickcolor": _TEXT, "tickfont": {"color": _TEXT}},
+            "bar": {"color": fail_color, "thickness": 0.25},
+            "bgcolor": _SURFACE,
+            "bordercolor": _GRID,
+            "steps": [
+                {"range": [0, 15],   "color": "rgba(0,201,167,0.12)"},
+                {"range": [15, 35],  "color": "rgba(251,191,36,0.12)"},
+                {"range": [35, 100], "color": "rgba(248,113,113,0.15)"},
+            ],
+            "threshold": {
+                "line": {"color": _ACCENT_ROSE, "width": 2},
+                "thickness": 0.8,
+                "value": 35,
+            },
+        },
+    ), row=1, col=3)
+
+    fig.update_layout(
+        **_base_layout(
+            title=dict(text="🩺 Economy Health Gauges", font=dict(size=18)),
+            height=300,
+            margin=dict(l=30, r=30, t=70, b=20),
+        ),
+    )
+    for ann in fig.layout.annotations:
+        ann.font.color = _TEXT
+        ann.font.size  = 13
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 8. Tuner Convergence Chart  (v0.3 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_tuner_convergence(probes: list, target_day: int, param_name: str) -> go.Figure:
+    """
+    Scatter + line chart showing the binary-search probe history:
+    iteration vs achieved milestone day, with the target day as a
+    reference line and the signed error coloured red/green.
+
+    Parameters
+    ----------
+    probes      : List of ``TunerProbe`` objects from ``TunerResult.probes``.
+    target_day  : Designer's desired milestone day D*.
+    param_name  : The parameter being tuned (for axis labels).
+
+    Returns
+    -------
+    go.Figure
+    """
+    iterations   = [p.iteration for p in probes]
+    achieved     = [(p.achieved_day if p.achieved_day is not None else None) for p in probes]
+    param_values = [p.param_value for p in probes]
+    objectives   = [p.objective for p in probes]
+
+    # Replace None achieved days with a sentinel for plotting
+    plot_days = [d if d is not None else (target_day + 30) for d in achieved]
+    colors     = [_ACCENT_TEAL if abs(o) <= 1 else (_ACCENT_AMBER if abs(o) <= 5 else _ACCENT_ROSE)
+                  for o in objectives]
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.6, 0.4], vertical_spacing=0.08,
+        subplot_titles=("Milestone Day per Probe", f"{param_name} Tested per Probe"),
+    )
+
+    # Row 1 – achieved day scatter
+    fig.add_hline(
+        y=target_day, line_color=_ACCENT_TEAL,
+        line_dash="dash", line_width=1.8,
+        annotation_text=f"Target: Day {target_day}",
+        annotation_font_color=_ACCENT_TEAL,
+        row=1, col=1,
+    )
+    fig.add_trace(go.Scatter(
+        x=iterations, y=plot_days,
+        mode="lines+markers",
+        name="Achieved Day",
+        line=dict(color=_ACCENT_BLUE, width=1.8),
+        marker=dict(color=colors, size=9, line=dict(width=1, color=_GRID)),
+        hovertemplate="Iter %{x}<br>Day: %{y}<extra></extra>",
+    ), row=1, col=1)
+
+    # Row 2 – param value tested
+    fig.add_trace(go.Scatter(
+        x=iterations, y=param_values,
+        mode="lines+markers",
+        name=param_name,
+        line=dict(color=_ACCENT_PURPLE, width=1.8, dash="dot"),
+        marker=dict(color=_ACCENT_PURPLE, size=7),
+        hovertemplate=f"Iter %{{x}}<br>{param_name}: %{{y:.1f}}<extra></extra>",
+    ), row=2, col=1)
+
+    fig.update_layout(
+        **_base_layout(
+            title=dict(text=f"🔍 Auto-Tuner Convergence — {param_name}", font=dict(size=18))
+        ),
+        xaxis2=dict(title="Iteration", **_AXIS_STYLE),
+        yaxis=dict(title="Milestone Day", **_AXIS_STYLE),
+        yaxis2=dict(title=f"{param_name} (gold)", **_AXIS_STYLE),
+        hovermode="x unified",
+    )
+    for ann in fig.layout.annotations:
+        ann.font.color = _TEXT
+        ann.font.size  = 13
+    for ax in ("xaxis", "xaxis2", "yaxis", "yaxis2"):
+        fig.layout[ax].update(_AXIS_STYLE)
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 9. Tuner Sensitivity Sweep  (v0.3 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_tuner_sensitivity(
+    sweep_values: list[float],
+    achieved_days: list[int | None],
+    param_name: str,
+    target_day: int,
+    archetype_name: str,
+) -> go.Figure:
+    """
+    Line chart showing how the milestone day responds to varying the
+    tuned parameter across its full search range.  Used to communicate
+    the sensitivity of the economy to that lever.
+
+    Parameters
+    ----------
+    sweep_values   : Ordered parameter values tested.
+    achieved_days  : Corresponding milestone day for each value (None = never).
+    param_name     : Parameter name for axis labels.
+    target_day     : Target day reference line.
+    archetype_name : Archetype name for labelling.
+
+    Returns
+    -------
+    go.Figure
+    """
+    plot_days = [d if d is not None else None for d in achieved_days]
+    # Filter out None for the line (show gaps instead)
+    x_vals, y_vals = [], []
+    for xv, yv in zip(sweep_values, plot_days):
+        x_vals.append(xv)
+        y_vals.append(yv)
+
+    fig = go.Figure()
+
+    fig.add_hline(
+        y=target_day,
+        line_color=_ACCENT_TEAL,
+        line_dash="dash",
+        line_width=2,
+        annotation_text=f"Target: Day {target_day}",
+        annotation_font_color=_ACCENT_TEAL,
+        annotation_position="bottom right",
+    )
+
+    # Colour the line segment: green where close to target, amber otherwise
+    fig.add_trace(go.Scatter(
+        x=x_vals,
+        y=y_vals,
+        mode="lines+markers",
+        name=f"{archetype_name} Milestone Day",
+        line=dict(color=_ACCENT_BLUE, width=2.5),
+        marker=dict(
+            color=[
+                _ACCENT_TEAL if (d is not None and abs(d - target_day) <= 2) else _ACCENT_AMBER
+                for d in achieved_days
+            ],
+            size=7,
+        ),
+        connectgaps=False,
+        hovertemplate=f"{param_name}: %{{x:.1f}}<br>Milestone: Day %{{y}}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_base_layout(
+            title=dict(
+                text=f"📉 Sensitivity: {archetype_name} T1 Day vs {param_name}",
+                font=dict(size=18),
+            )
+        ),
+        xaxis=dict(title=f"{param_name} (gold)", **_AXIS_STYLE),
+        yaxis=dict(title="Milestone Day", **_AXIS_STYLE),
+        hovermode="x unified",
+    )
+    return fig

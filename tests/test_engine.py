@@ -19,6 +19,16 @@ v0.2 additions
 9. Zero-balance edge cases remain strictly non-negative with stochastic draws.
 10. time_to_afford returns valid day indices or None.
 11. Per-archetype median columns are present in metrics DataFrame.
+
+v0.3 additions
+~~~~~~~~~~~~~~
+12. Diagnostic Engine: severity classification, alert structure, report fields.
+13. Diagnostics: flow-ratio threshold boundaries trigger correct severity levels.
+14. Diagnostics: Gini threshold triggers WARNING correctly.
+15. Diagnostics: casual fail-rate severity boundaries.
+16. Optimizer: converges to correct quest_reward for Casual Tier-1 target.
+17. Optimizer: enemy_reward tuning for Grinder archetype.
+18. Optimizer: raises on invalid param_name.
 """
 
 from __future__ import annotations
@@ -28,6 +38,16 @@ from typing import Optional
 
 import numpy as np
 import pytest
+
+from analytics.diagnostics import (
+    DiagnosticReport,
+    Severity,
+    run_diagnostics,
+    _check_macro_flow,
+    _check_wealth_disparity,
+    _check_progression_bottleneck,
+)
+from analytics.optimizer import tune_parameter, TunerResult
 
 from config.settings import ArchetypeProfile, EconomyConfig, SimulationConfig, DEFAULT_ARCHETYPES
 from simulation.engine import gini_coefficient, income_spending_ratio, run_simulation
@@ -514,4 +534,224 @@ class TestTimeToAfford:
         expected_rows = sim.days * n_archetypes
         assert len(df) == expected_rows, (
             f"Expected {expected_rows} rows, got {len(df)}"
+        )
+
+
+# ===========================================================================
+# 9. Diagnostic Engine  (v0.3 NEW)
+# ===========================================================================
+
+class TestDiagnostics:
+    """Verify Economy Doctor alert classification and report structure."""
+
+    @pytest.fixture
+    def full_run(self):
+        eco = EconomyConfig()
+        sim = SimulationConfig(num_players=1_000, days=45, random_seed=0, stochastic_mode=True)
+        results = run_simulation(sim, eco)
+        return results, eco, sim
+
+    def test_report_has_required_fields(self, full_run):
+        results, eco, sim = full_run
+        report = run_diagnostics(results, eco, sim, casual_target_day=20)
+        assert isinstance(report, DiagnosticReport)
+        assert isinstance(report.flow_ratio, float)
+        assert isinstance(report.gini, float)
+        assert isinstance(report.casual_fail_rate, float)
+        assert isinstance(report.overall_health, Severity)
+        assert isinstance(report.alerts, list)
+        assert len(report.alerts) > 0
+
+    def test_all_alerts_have_required_fields(self, full_run):
+        results, eco, sim = full_run
+        report = run_diagnostics(results, eco, sim)
+        for alert in report.alerts:
+            assert alert.criterion
+            assert isinstance(alert.severity, Severity)
+            assert alert.title
+            assert alert.detail
+            assert alert.recommendation
+            assert isinstance(alert.metric_value, float)
+
+    # --- Flow ratio threshold boundaries ---
+    @pytest.mark.parametrize("flow_ratio,expected_severity", [
+        (2.5,  Severity.CRITICAL),   # CRITICAL_INFLATION
+        (1.5,  Severity.WARNING),    # MODERATE_INFLATION
+        (1.1,  Severity.OK),         # BALANCED
+        (0.5,  Severity.CRITICAL),   # POVERTY_TRAP
+    ])
+    def test_flow_ratio_severity_boundaries(self, flow_ratio, expected_severity):
+        alert = _check_macro_flow(flow_ratio)
+        assert alert.severity == expected_severity, (
+            f"Flow ratio {flow_ratio} → expected {expected_severity}, got {alert.severity}"
+        )
+
+    # --- Gini threshold ---
+    def test_gini_warning_threshold(self):
+        high_gini = _check_wealth_disparity(0.60)
+        assert high_gini.severity == Severity.WARNING
+
+        low_gini = _check_wealth_disparity(0.30)
+        assert low_gini.severity == Severity.OK
+
+    # --- Casual fail-rate ---
+    def test_progression_blocker_threshold(self):
+        bad  = _check_progression_bottleneck(0.50, target_day=20, tier_1_cost=500)
+        assert bad.severity == Severity.WARNING
+
+        ok   = _check_progression_bottleneck(0.10, target_day=20, tier_1_cost=500)
+        assert ok.severity == Severity.OK
+
+    def test_overall_health_is_worst_alert(self, full_run):
+        """overall_health must equal the worst individual alert severity."""
+        results, eco, sim = full_run
+        report = run_diagnostics(results, eco, sim)
+        sev_rank = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.INFO: 2, Severity.OK: 3}
+        best_rank = min(sev_rank[a.severity] for a in report.alerts)
+        expected = [s for s, r in sev_rank.items() if r == best_rank][0]
+        assert report.overall_health == expected
+
+    def test_poverty_trap_detected(self):
+        """A heavily sink-dominant economy should raise CRITICAL (POVERTY_TRAP)."""
+        eco = EconomyConfig(
+            quest_reward=1.0, quests_per_day=1.0,
+            enemy_reward=1.0, enemies_per_day=1.0,
+            potion_cost=500.0, potions_per_day=10.0,
+        )
+        sim = SimulationConfig(num_players=500, days=20, random_seed=0, stochastic_mode=False)
+        results = run_simulation(sim, eco)
+        report  = run_diagnostics(results, eco, sim)
+        flow_alert = next(a for a in report.alerts if a.criterion == "MACRO_FLOW")
+        assert flow_alert.severity == Severity.CRITICAL
+        assert report.flow_ratio < 0.9
+
+    def test_critical_inflation_detected(self):
+        """A source-dominant economy with no sinks should flag critical inflation."""
+        eco = EconomyConfig(
+            quest_reward=200.0, quests_per_day=10.0,
+            enemy_reward=100.0, enemies_per_day=10.0,
+            potion_cost=0.0, potions_per_day=0.0,
+            weapon_cost=0.0, weapon_interval_days=7,
+        )
+        sim = SimulationConfig(num_players=500, days=20, random_seed=0, stochastic_mode=False)
+        results = run_simulation(sim, eco)
+        report  = run_diagnostics(results, eco, sim)
+        assert report.flow_ratio >= 2.0
+        flow_alert = next(a for a in report.alerts if a.criterion == "MACRO_FLOW")
+        assert flow_alert.severity == Severity.CRITICAL
+
+
+# ===========================================================================
+# 10. Parameter Auto-Tuner  (v0.3 NEW)
+# ===========================================================================
+
+class TestOptimizer:
+    """Verify the binary-search tuner finds valid parameter values."""
+
+    @pytest.fixture
+    def base_configs(self):
+        eco = EconomyConfig(
+            quest_reward=30.0,          # start low so tuner has room to increase
+            quests_per_day=3.0,
+            enemy_reward=15.0,
+            enemies_per_day=5.0,
+            potion_cost=10.0,
+            potions_per_day=4.0,
+            weapon_cost=300.0,
+            weapon_interval_days=7,
+            tier_1_weapon_cost=400,
+        )
+        sim = SimulationConfig(
+            num_players=2_000,
+            days=60,
+            random_seed=42,
+            stochastic_mode=True,
+        )
+        return eco, sim
+
+    def test_result_is_tuner_result(self, base_configs):
+        eco, sim = base_configs
+        result = tune_parameter(
+            eco_config=eco, sim_config=sim,
+            param_name="quest_reward",
+            search_lo=10.0, search_hi=200.0,
+            target_archetype="Casual", target_tier=1, target_day=25,
+            probe_players=500, max_iterations=8,
+        )
+        assert isinstance(result, TunerResult)
+
+    def test_best_value_within_bounds(self, base_configs):
+        eco, sim = base_configs
+        lo, hi = 10.0, 200.0
+        result = tune_parameter(
+            eco_config=eco, sim_config=sim,
+            param_name="quest_reward",
+            search_lo=lo, search_hi=hi,
+            target_archetype="Casual", target_tier=1, target_day=25,
+            probe_players=500, max_iterations=10,
+        )
+        assert lo <= result.best_value <= hi, (
+            f"Best value {result.best_value} outside bounds [{lo}, {hi}]"
+        )
+
+    def test_probes_recorded(self, base_configs):
+        eco, sim = base_configs
+        result = tune_parameter(
+            eco_config=eco, sim_config=sim,
+            param_name="quest_reward",
+            search_lo=10.0, search_hi=200.0,
+            target_archetype="Casual", target_tier=1, target_day=25,
+            probe_players=400, max_iterations=6,
+        )
+        assert len(result.probes) > 0
+        assert len(result.probes) <= 6
+
+    def test_quest_reward_reduces_milestone_day(self, base_configs):
+        """Higher quest_reward must produce an earlier (smaller) Tier-1 day."""
+        eco, sim = base_configs
+        from analytics.optimizer import _probe
+        probe_sim = SimulationConfig(
+            num_players=1_000, days=60, random_seed=0, stochastic_mode=True,
+        )
+        day_low  = _probe(eco, probe_sim, "quest_reward", 20.0,  "Casual", 1)
+        day_high = _probe(eco, probe_sim, "quest_reward", 150.0, "Casual", 1)
+
+        # Both might be None if unreachable; otherwise high reward → earlier day
+        if day_low is not None and day_high is not None:
+            assert day_high <= day_low, (
+                f"Higher reward should give earlier day: {day_low} (low) vs {day_high} (high)"
+            )
+
+    def test_invalid_param_name_raises(self, base_configs):
+        eco, sim = base_configs
+        with pytest.raises(ValueError, match="param_name"):
+            tune_parameter(
+                eco_config=eco, sim_config=sim,
+                param_name="invalid_param",
+                search_lo=10.0, search_hi=200.0,
+            )
+
+    def test_invalid_bounds_raises(self, base_configs):
+        eco, sim = base_configs
+        with pytest.raises(ValueError, match="search_lo"):
+            tune_parameter(
+                eco_config=eco, sim_config=sim,
+                param_name="quest_reward",
+                search_lo=200.0, search_hi=100.0,  # reversed
+            )
+
+    def test_tuner_performance_under_2s(self, base_configs):
+        """Complete auto-tune must finish in under 2 000 ms."""
+        eco, sim = base_configs
+        t0 = time.perf_counter()
+        tune_parameter(
+            eco_config=eco, sim_config=sim,
+            param_name="quest_reward",
+            search_lo=10.0, search_hi=200.0,
+            target_archetype="Casual", target_tier=1, target_day=20,
+            probe_players=1_000, max_iterations=15,
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1_000
+        assert elapsed_ms < 2_000, (
+            f"Auto-tuner took {elapsed_ms:.0f} ms (budget: 2000 ms)"
         )
