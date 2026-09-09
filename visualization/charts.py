@@ -2,37 +2,36 @@
 visualization/charts.py
 -----------------------
 Plotly chart builders for the Game Economy Simulator dashboard.
+v0.2 additions: archetype trajectory, violin distribution, milestone bar chart.
 
-Each function accepts processed data (DataFrames / NumPy arrays) and returns
-a fully-configured ``plotly.graph_objects.Figure`` ready to be rendered by
-Streamlit's ``st.plotly_chart``.
-
-Design tokens
-~~~~~~~~~~~~~
-All charts share a consistent dark-themed palette and typography so the
-dashboard feels cohesive without importing a shared CSS file.
+Each function returns a fully-configured ``plotly.graph_objects.Figure``
+ready to be rendered by Streamlit's ``st.plotly_chart``.
 """
 
 from __future__ import annotations
+
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from config.settings import ArchetypeProfile
+
 # ---------------------------------------------------------------------------
 # Shared design tokens
 # ---------------------------------------------------------------------------
 
-_BG = "#0F1117"          # deep charcoal – matches Streamlit dark background
-_SURFACE = "#1A1D27"     # slightly lighter surface for chart area
-_GRID = "#2A2D3A"        # subtle grid lines
-_TEXT = "#E0E4F0"        # near-white labels
-_ACCENT_BLUE = "#4F8EF7"
-_ACCENT_TEAL = "#00C9A7"
+_BG      = "#0F1117"
+_SURFACE = "#1A1D27"
+_GRID    = "#2A2D3A"
+_TEXT    = "#E0E4F0"
+_ACCENT_BLUE   = "#4F8EF7"
+_ACCENT_TEAL   = "#00C9A7"
 _ACCENT_PURPLE = "#A78BFA"
-_ACCENT_AMBER = "#FBBF24"
-_ACCENT_ROSE = "#F87171"
+_ACCENT_AMBER  = "#FBBF24"
+_ACCENT_ROSE   = "#F87171"
 
 _FONT_FAMILY = "Inter, system-ui, sans-serif"
 
@@ -63,66 +62,47 @@ def _base_layout(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 1. Wealth Progression  (Mean vs Median over time)
+# 1. Overall Wealth Progression  (Mean vs Median, global)
 # ---------------------------------------------------------------------------
 
 def plot_wealth_progression(df_metrics: pd.DataFrame) -> go.Figure:
     """
-    Line chart of Average and Median player gold over simulation days.
-
-    Also renders a shaded Min–Max band so the spread of player outcomes is
-    immediately visible.
+    Line chart of global Average and Median player gold over simulation days
+    with a shaded Min–Max band.
 
     Parameters
     ----------
     df_metrics : pd.DataFrame
         Output of ``run_simulation()["metrics"]``.
-
-    Returns
-    -------
-    go.Figure
     """
     days = df_metrics["day"]
 
     fig = go.Figure()
 
-    # --- Min-Max shaded band ---
-    fig.add_trace(
-        go.Scatter(
-            x=pd.concat([days, days[::-1]]),
-            y=pd.concat([df_metrics["max_gold"], df_metrics["min_gold"][::-1]]),
-            fill="toself",
-            fillcolor="rgba(79,142,247,0.08)",
-            line=dict(color="rgba(0,0,0,0)"),
-            hoverinfo="skip",
-            name="Min–Max range",
-            showlegend=True,
-        )
-    )
+    # Shaded band
+    fig.add_trace(go.Scatter(
+        x=pd.concat([days, days[::-1]]),
+        y=pd.concat([df_metrics["max_gold"], df_metrics["min_gold"][::-1]]),
+        fill="toself",
+        fillcolor="rgba(79,142,247,0.08)",
+        line=dict(color="rgba(0,0,0,0)"),
+        hoverinfo="skip",
+        name="Min–Max range",
+    ))
 
-    # --- Mean line ---
-    fig.add_trace(
-        go.Scatter(
-            x=days,
-            y=df_metrics["avg_gold"],
-            mode="lines",
-            name="Mean Gold",
-            line=dict(color=_ACCENT_BLUE, width=2.5),
-            hovertemplate="Day %{x}<br>Mean: %{y:,.0f} gold<extra></extra>",
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=days, y=df_metrics["avg_gold"],
+        mode="lines", name="Mean Gold",
+        line=dict(color=_ACCENT_BLUE, width=2.5),
+        hovertemplate="Day %{x}<br>Mean: %{y:,.0f} gold<extra></extra>",
+    ))
 
-    # --- Median line ---
-    fig.add_trace(
-        go.Scatter(
-            x=days,
-            y=df_metrics["median_gold"],
-            mode="lines",
-            name="Median Gold",
-            line=dict(color=_ACCENT_TEAL, width=2.5, dash="dot"),
-            hovertemplate="Day %{x}<br>Median: %{y:,.0f} gold<extra></extra>",
-        )
-    )
+    fig.add_trace(go.Scatter(
+        x=days, y=df_metrics["median_gold"],
+        mode="lines", name="Median Gold",
+        line=dict(color=_ACCENT_TEAL, width=2.5, dash="dot"),
+        hovertemplate="Day %{x}<br>Median: %{y:,.0f} gold<extra></extra>",
+    ))
 
     fig.update_layout(
         **_base_layout(title=dict(text="💰 Wealth Progression Over Time", font=dict(size=18))),
@@ -130,77 +110,51 @@ def plot_wealth_progression(df_metrics: pd.DataFrame) -> go.Figure:
         yaxis=dict(title="Gold Balance", **_AXIS_STYLE, tickformat=","),
         hovermode="x unified",
     )
-
     return fig
 
 
 # ---------------------------------------------------------------------------
-# 2. Wealth Distribution  (Histogram + KDE at final day)
+# 2. Overall Wealth Distribution  (Histogram + KDE)
 # ---------------------------------------------------------------------------
 
 def plot_wealth_distribution(final_balances: np.ndarray) -> go.Figure:
     """
-    Histogram of player gold balances at the final simulation day with an
-    overlaid smooth KDE curve.
+    Histogram of global player wealth at the final day with KDE overlay.
 
     Parameters
     ----------
     final_balances : np.ndarray, shape (num_players,)
-
-    Returns
-    -------
-    go.Figure
     """
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # --- Histogram ---
-    fig.add_trace(
-        go.Histogram(
-            x=final_balances,
-            name="Player Count",
-            nbinsx=50,
-            marker=dict(
-                color=_ACCENT_PURPLE,
-                opacity=0.75,
-                line=dict(width=0.4, color=_GRID),
-            ),
-            hovertemplate="Gold: %{x:,.0f}<br>Players: %{y}<extra></extra>",
-        ),
-        secondary_y=False,
-    )
+    fig.add_trace(go.Histogram(
+        x=final_balances,
+        name="Player Count",
+        nbinsx=50,
+        marker=dict(color=_ACCENT_PURPLE, opacity=0.75,
+                    line=dict(width=0.4, color=_GRID)),
+        hovertemplate="Gold: %{x:,.0f}<br>Players: %{y}<extra></extra>",
+    ), secondary_y=False)
 
-    # --- KDE via simple Gaussian kernel ---
     kde_x, kde_y = _gaussian_kde(final_balances, n_points=400)
-    fig.add_trace(
-        go.Scatter(
-            x=kde_x,
-            y=kde_y,
-            name="Density",
-            mode="lines",
-            line=dict(color=_ACCENT_AMBER, width=2.5),
-            hovertemplate="Gold: %{x:,.0f}<br>Density: %{y:.4f}<extra></extra>",
-        ),
-        secondary_y=True,
-    )
+    fig.add_trace(go.Scatter(
+        x=kde_x, y=kde_y,
+        name="Density", mode="lines",
+        line=dict(color=_ACCENT_AMBER, width=2.5),
+        hovertemplate="Gold: %{x:,.0f}<br>Density: %{y:.4f}<extra></extra>",
+    ), secondary_y=True)
 
-    # Vertical mean / median lines
-    mean_val = float(np.mean(final_balances))
+    mean_val   = float(np.mean(final_balances))
     median_val = float(np.median(final_balances))
-    y_max = int(np.histogram(final_balances, bins=50)[0].max())
 
     for val, label, color in [
         (mean_val, "Mean", _ACCENT_BLUE),
         (median_val, "Median", _ACCENT_TEAL),
     ]:
-        fig.add_vline(
-            x=val,
-            line_width=1.8,
-            line_dash="dash",
-            line_color=color,
-            annotation_text=f"{label}: {val:,.0f}",
-            annotation_font_color=color,
-            annotation_position="top right",
-        )
+        fig.add_vline(x=val, line_width=1.8, line_dash="dash", line_color=color,
+                      annotation_text=f"{label}: {val:,.0f}",
+                      annotation_font_color=color,
+                      annotation_position="top right")
 
     fig.update_layout(
         **_base_layout(title=dict(text="📊 Final Day Wealth Distribution", font=dict(size=18))),
@@ -210,113 +164,245 @@ def plot_wealth_distribution(final_balances: np.ndarray) -> go.Figure:
         barmode="overlay",
         hovermode="x unified",
     )
-
     return fig
 
 
 # ---------------------------------------------------------------------------
-# 3. Inflow / Outflow Balance  (Cumulative area + daily bar)
+# 3. Inflow / Outflow Balance
 # ---------------------------------------------------------------------------
 
 def plot_inflow_outflow(df_metrics: pd.DataFrame) -> go.Figure:
     """
-    Dual-panel chart:
-    - Top: Cumulative gold inflow vs outflow (filled area chart).
-    - Bottom: Daily net flow bar chart (green = positive, red = negative).
+    Dual-panel chart: cumulative inflow vs outflow (top) and daily net flow (bottom).
 
     Parameters
     ----------
     df_metrics : pd.DataFrame
         Output of ``run_simulation()["metrics"]``.
-
-    Returns
-    -------
-    go.Figure
     """
     days = df_metrics["day"]
-    net = df_metrics["net_flow_day"]
+    net  = df_metrics["net_flow_day"]
     net_colors = [_ACCENT_TEAL if v >= 0 else _ACCENT_ROSE for v in net]
 
     fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        row_heights=[0.65, 0.35],
-        vertical_spacing=0.06,
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.65, 0.35], vertical_spacing=0.06,
         subplot_titles=("Cumulative Gold Flow", "Daily Net Flow"),
     )
 
-    # --- Cumulative inflow ---
-    fig.add_trace(
-        go.Scatter(
-            x=days,
-            y=df_metrics["cumulative_earned"],
-            name="Cumulative Inflow",
-            fill="tozeroy",
-            fillcolor="rgba(0,201,167,0.15)",
-            line=dict(color=_ACCENT_TEAL, width=2),
-            hovertemplate="Day %{x}<br>Cumulative Earned: %{y:,.0f}<extra></extra>",
-        ),
-        row=1, col=1,
-    )
+    fig.add_trace(go.Scatter(
+        x=days, y=df_metrics["cumulative_earned"],
+        name="Cumulative Inflow", fill="tozeroy",
+        fillcolor="rgba(0,201,167,0.15)",
+        line=dict(color=_ACCENT_TEAL, width=2),
+        hovertemplate="Day %{x}<br>Cumulative Earned: %{y:,.0f}<extra></extra>",
+    ), row=1, col=1)
 
-    # --- Cumulative outflow ---
-    fig.add_trace(
-        go.Scatter(
-            x=days,
-            y=df_metrics["cumulative_spent"],
-            name="Cumulative Outflow",
-            fill="tozeroy",
-            fillcolor="rgba(248,113,113,0.15)",
-            line=dict(color=_ACCENT_ROSE, width=2),
-            hovertemplate="Day %{x}<br>Cumulative Spent: %{y:,.0f}<extra></extra>",
-        ),
-        row=1, col=1,
-    )
+    fig.add_trace(go.Scatter(
+        x=days, y=df_metrics["cumulative_spent"],
+        name="Cumulative Outflow", fill="tozeroy",
+        fillcolor="rgba(248,113,113,0.15)",
+        line=dict(color=_ACCENT_ROSE, width=2),
+        hovertemplate="Day %{x}<br>Cumulative Spent: %{y:,.0f}<extra></extra>",
+    ), row=1, col=1)
 
-    # --- Daily net flow bars ---
-    fig.add_trace(
-        go.Bar(
-            x=days,
-            y=net,
-            name="Net Flow",
-            marker_color=net_colors,
-            hovertemplate="Day %{x}<br>Net: %{y:,.0f}<extra></extra>",
-        ),
-        row=2, col=1,
-    )
+    fig.add_trace(go.Bar(
+        x=days, y=net,
+        name="Net Flow", marker_color=net_colors,
+        hovertemplate="Day %{x}<br>Net: %{y:,.0f}<extra></extra>",
+    ), row=2, col=1)
 
     fig.update_layout(
         **_base_layout(title=dict(text="⚖️ Gold Inflow vs Outflow", font=dict(size=18))),
         xaxis2=dict(title="Day", **_AXIS_STYLE),
         yaxis=dict(title="Gold (total, all players)", **_AXIS_STYLE, tickformat=","),
         yaxis2=dict(title="Net Gold", **_AXIS_STYLE, tickformat=","),
-        hovermode="x unified",
-        showlegend=True,
+        hovermode="x unified", showlegend=True,
     )
-
-    # Style subplot title annotations
-    for annotation in fig.layout.annotations:
-        annotation.font.color = _TEXT
-        annotation.font.size = 14
-
-    # Apply axis styles to both subplots
-    for axis in ("xaxis", "xaxis2", "yaxis", "yaxis2"):
-        fig.layout[axis].update(_AXIS_STYLE)
+    for ann in fig.layout.annotations:
+        ann.font.color = _TEXT
+        ann.font.size = 14
+    for ax in ("xaxis", "xaxis2", "yaxis", "yaxis2"):
+        fig.layout[ax].update(_AXIS_STYLE)
 
     return fig
 
 
 # ---------------------------------------------------------------------------
-# Internal helper – Gaussian KDE
+# 4. Archetype Median Wealth Trajectory  (v0.2 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_archetype_progression(
+    archetype_metrics: pd.DataFrame,
+    archetypes: List[ArchetypeProfile],
+) -> go.Figure:
+    """
+    Multi-line chart showing the median gold trajectory over time for each
+    player archetype.
+
+    Parameters
+    ----------
+    archetype_metrics : pd.DataFrame
+        Long-format DataFrame with columns: day | archetype | median_gold.
+        Output of ``run_simulation()["archetype_metrics"]``.
+    archetypes : List[ArchetypeProfile]
+        Archetype definitions (for color lookup and ordering).
+    """
+    color_map = {a.name: a.color for a in archetypes}
+    arch_order = [a.name for a in archetypes]
+
+    fig = go.Figure()
+
+    for arch_name in arch_order:
+        subset = archetype_metrics[archetype_metrics["archetype"] == arch_name]
+        if subset.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=subset["day"],
+            y=subset["median_gold"],
+            mode="lines",
+            name=arch_name,
+            line=dict(color=color_map.get(arch_name, "#FFFFFF"), width=2.5),
+            hovertemplate=f"<b>{arch_name}</b><br>Day %{{x}}<br>Median Gold: %{{y:,.0f}}<extra></extra>",
+        ))
+
+    fig.update_layout(
+        **_base_layout(title=dict(text="🧙 Archetype Wealth Trajectories (Median)", font=dict(size=18))),
+        xaxis=dict(title="Day", **_AXIS_STYLE),
+        yaxis=dict(title="Median Gold Balance", **_AXIS_STYLE, tickformat=","),
+        hovermode="x unified",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 5. Archetype Wealth Distribution — Violin Plot  (v0.2 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_archetype_distribution(
+    final_balances: np.ndarray,
+    archetype_ids: np.ndarray,
+    archetypes: List[ArchetypeProfile],
+) -> go.Figure:
+    """
+    Violin plot of final-day wealth distribution segmented by archetype,
+    with an overlaid box plot for quartile visibility.
+
+    Parameters
+    ----------
+    final_balances : np.ndarray, shape (P,)
+    archetype_ids  : np.ndarray, shape (P,), integer archetype index per player.
+    archetypes     : List[ArchetypeProfile]
+    """
+    fig = go.Figure()
+
+    for a_idx, arch in enumerate(archetypes):
+        mask = archetype_ids == a_idx
+        if not mask.any():
+            continue
+        vals = final_balances[mask]
+        fig.add_trace(go.Violin(
+            y=vals,
+            name=arch.name,
+            box_visible=True,
+            meanline_visible=True,
+            fillcolor=_hex_to_rgba(arch.color, 0.25),
+            line_color=arch.color,
+            marker=dict(color=arch.color, size=2, opacity=0.4),
+            points="outliers",
+            hovertemplate=(
+                f"<b>{arch.name}</b><br>"
+                "Gold: %{y:,.0f}<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        **_base_layout(title=dict(text="🎻 Final Day Wealth by Archetype", font=dict(size=18))),
+        yaxis=dict(title="Gold Balance (Final Day)", **_AXIS_STYLE, tickformat=","),
+        xaxis=dict(**_AXIS_STYLE),
+        violingap=0.15,
+        violinmode="overlay",
+        showlegend=True,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 6. Time-to-Afford Milestones — Bar Chart  (v0.2 NEW)
+# ---------------------------------------------------------------------------
+
+def plot_affordability_milestones(
+    time_to_afford: Dict[str, dict],
+    archetypes: List[ArchetypeProfile],
+    tier_1_cost: int,
+    tier_2_cost: int,
+) -> go.Figure:
+    """
+    Grouped bar chart: days required for 50% of each archetype to afford
+    Tier 1 and Tier 2 gear milestones.
+
+    Parameters
+    ----------
+    time_to_afford : dict  {archetype_name: {"tier_1": int|None, "tier_2": int|None}}
+    archetypes     : List[ArchetypeProfile]
+    tier_1_cost    : int, gold cost of Tier 1 milestone (label only).
+    tier_2_cost    : int, gold cost of Tier 2 milestone (label only).
+    """
+    arch_names  = [a.name for a in archetypes]
+    t1_days: List[float] = []
+    t2_days: List[float] = []
+
+    for name in arch_names:
+        d = time_to_afford.get(name, {})
+        t1_days.append(d.get("tier_1") or 0)
+        t2_days.append(d.get("tier_2") or 0)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        name=f"Tier 1 ({tier_1_cost:,}g)",
+        x=arch_names,
+        y=t1_days,
+        marker_color=[a.color for a in archetypes],
+        marker_opacity=0.9,
+        text=[f"Day {int(v)}" if v > 0 else "Never" for v in t1_days],
+        textposition="outside",
+        textfont=dict(color=_TEXT, size=12),
+        hovertemplate="<b>%{x}</b><br>Tier 1 affordable by: Day %{y}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Bar(
+        name=f"Tier 2 ({tier_2_cost:,}g)",
+        x=arch_names,
+        y=t2_days,
+        marker_color=[a.color for a in archetypes],
+        marker_opacity=0.45,
+        marker_pattern_shape="/",
+        text=[f"Day {int(v)}" if v > 0 else "Never" for v in t2_days],
+        textposition="outside",
+        textfont=dict(color=_TEXT, size=12),
+        hovertemplate="<b>%{x}</b><br>Tier 2 affordable by: Day %{y}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        **_base_layout(title=dict(text="⏱️ Days Until 50% of Archetype Can Afford Gear", font=dict(size=18))),
+        xaxis=dict(title="Archetype", **_AXIS_STYLE),
+        yaxis=dict(title="Day", **_AXIS_STYLE),
+        barmode="group",
+        bargap=0.25,
+        bargroupgap=0.08,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
 # ---------------------------------------------------------------------------
 
 def _gaussian_kde(data: np.ndarray, n_points: int = 400) -> tuple[np.ndarray, np.ndarray]:
     """
-    Evaluate a Gaussian KDE on *data* at *n_points* evenly spaced locations.
-
-    Uses Silverman's rule-of-thumb bandwidth.  Pure NumPy — no SciPy
-    dependency required.
+    Evaluate a Gaussian KDE on *data* using Silverman's bandwidth.
+    Pure NumPy — no SciPy dependency.
     """
     n = data.size
     if n < 2:
@@ -324,20 +410,18 @@ def _gaussian_kde(data: np.ndarray, n_points: int = 400) -> tuple[np.ndarray, np
 
     std = data.std(ddof=1)
     if std == 0:
-        # All values identical
         x = np.linspace(data.min() - 1, data.max() + 1, n_points)
-        y = np.zeros(n_points)
-        return x, y
+        return x, np.zeros(n_points)
 
-    # Silverman bandwidth
     bw = 1.06 * std * n ** (-0.2)
-
-    x_min = data.min() - 3 * bw
-    x_max = data.max() + 3 * bw
-    x = np.linspace(x_min, x_max, n_points)
-
-    # Vectorised: shape [n_points, n] → sum over n axis
-    z = (x[:, np.newaxis] - data[np.newaxis, :]) / bw
-    y = np.exp(-0.5 * z ** 2).sum(axis=1) / (n * bw * np.sqrt(2 * np.pi))
-
+    x  = np.linspace(data.min() - 3 * bw, data.max() + 3 * bw, n_points)
+    z  = (x[:, np.newaxis] - data[np.newaxis, :]) / bw
+    y  = np.exp(-0.5 * z ** 2).sum(axis=1) / (n * bw * np.sqrt(2 * np.pi))
     return x, y
+
+
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert a hex color string '#RRGGBB' to 'rgba(r,g,b,alpha)'."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
