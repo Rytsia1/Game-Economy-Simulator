@@ -20,8 +20,15 @@ import streamlit as st
 
 from analytics.diagnostics import run_diagnostics
 from analytics.optimizer import tune_parameter, TunerResult
+from config.scenarios import (
+    get_scenario_presets,
+    run_scenario_matrix,
+    SCENARIO_COLORS,
+    SCENARIO_DESCRIPTIONS,
+)
 from config.settings import ArchetypeProfile, EconomyConfig, SimulationConfig, DEFAULT_ARCHETYPES
 from simulation.engine import gini_coefficient, income_spending_ratio, run_simulation
+from simulation.monte_carlo import run_monte_carlo, MonteCarloResult
 from visualization.charts import (
     plot_affordability_milestones,
     plot_archetype_distribution,
@@ -39,6 +46,13 @@ from visualization.health_cards import (
     render_health_banner,
     render_tuner_delta,
     section_title as hc_section,
+)
+from visualization.scenario_charts import (
+    plot_scenario_comparison,
+    plot_scenario_metrics_bar,
+    plot_monte_carlo_fan_chart,
+    plot_risk_distribution,
+    plot_risk_scatter_or_cdf,
 )
 
 # ---------------------------------------------------------------------------
@@ -288,16 +302,25 @@ st.markdown("<hr style='margin:0.6rem 0 1rem 0;'>", unsafe_allow_html=True)
 # Tabs
 # ---------------------------------------------------------------------------
 
-tab_sim, tab_doctor, tab_tuner = st.tabs(
-    ["📊 Dashboard & Health", "🩺 Economy Doctor", "⚙️ Parameter Auto-Tuner"]
+# ---------------------------------------------------------------------------
+# Tabs
+# ---------------------------------------------------------------------------
+
+tab_dashboard, tab_scenarios, tab_monte_carlo, tab_tuner = st.tabs(
+    [
+        "📊 Dashboard & Health",
+        "🧪 Scenario Stress-Test",
+        "🎲 Monte Carlo Risk Lab",
+        "⚙️ Auto-Tuning Lab",
+    ]
 )
 
 
 # ============================================================
-# TAB 1 — SIMULATION  (v0.2 dashboard, preserved)
+# TAB 1 — DASHBOARD & HEALTH  (Unified Simulation & Diagnostics)
 # ============================================================
 
-with tab_sim:
+with tab_dashboard:
     # — KPI row —
     avg_final  = float(np.mean(final_balances))
     med_final  = float(np.median(final_balances))
@@ -332,26 +355,48 @@ with tab_sim:
                 <div class="kpi-sub">{kpi['sub']}</div>
             </div>""", unsafe_allow_html=True)
 
+    # — Diagnostics calculation —
+    if "diag" not in st.session_state or run_btn:
+        st.session_state.diag = run_diagnostics(results, eco_cfg, sim_cfg, casual_target_day=20)
+    diag = st.session_state.diag
+
+    # — Health Banner & Gauges —
+    st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
+    render_health_banner(diag.overall_health.value, diag.summary)
+
+    st.plotly_chart(
+        plot_diagnostic_gauges(diag.flow_ratio, diag.gini, diag.casual_fail_rate),
+        use_container_width=True, config={"displayModeBar": False},
+    )
+
+    # — Diagnostic Alerts —
+    render_alert_cards(diag.alerts)
+
     # — Archetype trajectory —
-    st.markdown("<div class='section-title'>🧙 Archetype Wealth Trajectories</div>", unsafe_allow_html=True)
-    from visualization.charts import plot_archetype_progression
-    st.plotly_chart(plot_archetype_progression(archetype_metrics, archetypes),
-                    use_container_width=True, config={"displayModeBar": False})
+    hc_section("🧙 Archetype Wealth Trajectories")
+    st.plotly_chart(
+        plot_archetype_progression(archetype_metrics, archetypes),
+        use_container_width=True, config={"displayModeBar": False},
+    )
 
     # — Row 2: violin + milestones —
     c1, c2 = st.columns(2, gap="medium")
     with c1:
-        st.markdown("<div class='section-title'>🎻 Wealth Distribution by Archetype</div>", unsafe_allow_html=True)
-        st.plotly_chart(plot_archetype_distribution(final_balances, archetype_ids, archetypes),
-                        use_container_width=True, config={"displayModeBar": False})
+        hc_section("🎻 Wealth Distribution by Archetype")
+        st.plotly_chart(
+            plot_archetype_distribution(final_balances, archetype_ids, archetypes),
+            use_container_width=True, config={"displayModeBar": False},
+        )
     with c2:
-        st.markdown("<div class='section-title'>⏱️ Time-to-Afford Milestones</div>", unsafe_allow_html=True)
-        st.plotly_chart(plot_affordability_milestones(
-            time_to_afford, archetypes, int(eco_cfg.tier_1_weapon_cost), int(eco_cfg.tier_2_weapon_cost)
-        ), use_container_width=True, config={"displayModeBar": False})
+        hc_section("⏱️ Time-to-Afford Milestones")
+        st.plotly_chart(
+            plot_affordability_milestones(
+                time_to_afford, archetypes, int(eco_cfg.tier_1_weapon_cost), int(eco_cfg.tier_2_weapon_cost)
+            ), use_container_width=True, config={"displayModeBar": False},
+        )
 
     # — Milestone info cards —
-    st.markdown("<div class='section-title'>📋 Affordability Breakdown</div>", unsafe_allow_html=True)
+    hc_section("📋 Affordability Breakdown")
     mcols = st.columns(len(archetypes))
     for col, arch in zip(mcols, archetypes):
         tta   = time_to_afford.get(arch.name, {})
@@ -368,107 +413,245 @@ with tab_sim:
     # — Row 3: global progression + inflow/outflow —
     c3, c4 = st.columns(2, gap="medium")
     with c3:
-        st.markdown("<div class='section-title'>📈 Global Wealth Progression</div>", unsafe_allow_html=True)
-        st.plotly_chart(plot_wealth_progression(df_metrics),
-                        use_container_width=True, config={"displayModeBar": False})
+        hc_section("📈 Global Wealth Progression")
+        st.plotly_chart(
+            plot_wealth_progression(df_metrics),
+            use_container_width=True, config={"displayModeBar": False},
+        )
     with c4:
-        st.markdown("<div class='section-title'>⚖️ Gold Inflow vs Outflow</div>", unsafe_allow_html=True)
-        st.plotly_chart(plot_inflow_outflow(df_metrics),
-                        use_container_width=True, config={"displayModeBar": False})
+        hc_section("⚖️ Gold Inflow vs Outflow")
+        st.plotly_chart(
+            plot_inflow_outflow(df_metrics),
+            use_container_width=True, config={"displayModeBar": False},
+        )
 
     # — Global histogram —
-    st.markdown("<div class='section-title'>📊 Global Wealth Distribution</div>", unsafe_allow_html=True)
-    st.plotly_chart(plot_wealth_distribution(final_balances),
-                    use_container_width=True, config={"displayModeBar": False})
+    hc_section("📊 Global Wealth Distribution")
+    st.plotly_chart(
+        plot_wealth_distribution(final_balances),
+        use_container_width=True, config={"displayModeBar": False},
+    )
 
-    # — Raw data —
+    # — Raw data expanders —
     with st.expander("🔍 Raw Day-by-Day Metrics", expanded=False):
         d = df_metrics.copy()
         d.columns = [c.replace("_", " ").title() for c in d.columns]
-        st.dataframe(d.style.format({col: "{:,.1f}" for col in d.columns if col.lower() != "day"}),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(
+            d.style.format({col: "{:,.1f}" for col in d.columns if col.lower() != "day"}),
+            use_container_width=True, hide_index=True,
+        )
     with st.expander("🧙 Archetype Metrics (Long Format)", expanded=False):
-        st.dataframe(archetype_metrics.style.format({"median_gold": "{:,.1f}"}),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(
+            archetype_metrics.style.format({"median_gold": "{:,.1f}"}),
+            use_container_width=True, hide_index=True,
+        )
 
 
 # ============================================================
-# TAB 2 — ECONOMY DOCTOR
+# TAB 2 — SCENARIO STRESS-TEST MATRIX
 # ============================================================
 
-with tab_doctor:
-    st.markdown("### 🩺 Economy Doctor — Automated Health Diagnostics")
+with tab_scenarios:
+    st.markdown("### 🧪 Scenario Stress-Testing Matrix")
     st.caption(
-        "Evaluates your economy across 3 objective criteria and provides "
-        "prescriptive game-design recommendations."
+        "Evaluate macroeconomic resilience across 4 distinct regimes: "
+        "Baseline, Gold Rush (Hyper-Inflation), Economic Crisis (Depression), and Demographic Shock."
     )
 
-    # — Diagnostic target setting —
-    d_col1, d_col2, d_col3 = st.columns([1, 1, 1])
-    with d_col1:
-        casual_target_day = st.slider(
-            "Casual T1 Target Day (deadline)",
-            5, int(days), min(20, int(days)),
-            help="Day by which 50%+ of Casual players should afford Tier-1 gear.",
-        )
-    with d_col2:
-        run_diag_btn = st.button("🔬 Run Diagnostics", type="primary", use_container_width=True)
+    # Regime overview cards
+    st.markdown("""
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.75rem; margin-bottom: 1.2rem;">
+        <div style="background:#1A1D27; border:1px solid #2A2D3A; border-radius:10px; padding:0.8rem 1rem;">
+            <div style="font-weight:700; color:#00C9A7; font-size:0.9rem;">1. Normal (Baseline)</div>
+            <div style="font-size:0.75rem; color:#8892AA; margin-top:0.3rem;">Default balanced equilibrium across all sources and sinks.</div>
+        </div>
+        <div style="background:#1A1D27; border:1px solid #2A2D3A; border-radius:10px; padding:0.8rem 1rem;">
+            <div style="font-weight:700; color:#FBBF24; font-size:0.9rem;">2. Gold Rush (Hyper-Inflation)</div>
+            <div style="font-size:0.75rem; color:#8892AA; margin-top:0.3rem;">Quest rewards +100%, enemy drops +80%. Unchecked gold snowballing.</div>
+        </div>
+        <div style="background:#1A1D27; border:1px solid #2A2D3A; border-radius:10px; padding:0.8rem 1rem;">
+            <div style="font-weight:700; color:#F87171; font-size:0.9rem;">3. Economic Crisis (Depression)</div>
+            <div style="font-size:0.75rem; color:#8892AA; margin-top:0.3rem;">Sources -30%, item prices +25%, potion usage +20%. Severe poverty trap.</div>
+        </div>
+        <div style="background:#1A1D27; border:1px solid #2A2D3A; border-radius:10px; padding:0.8rem 1rem;">
+            <div style="font-weight:700; color:#A78BFA; font-size:0.9rem;">4. Hardcore Shift (Shock)</div>
+            <div style="font-size:0.75rem; color:#8892AA; margin-top:0.3rem;">Demographics: Grinders 50%, Optimizers 30%, Casuals 10%. High inequality.</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Cache diagnostic results in session state
-    if "diag" not in st.session_state or run_diag_btn or run_btn:
-        st.session_state.diag = run_diagnostics(
-            results, eco_cfg, sim_cfg, casual_target_day=casual_target_day
-        )
+    run_scenarios_btn = st.button("⚡ Run Stress-Test Matrix", type="primary", use_container_width=True)
 
-    diag = st.session_state.diag
+    if run_scenarios_btn or "scenario_results" not in st.session_state:
+        with st.spinner("Simulating all 4 macroeconomic regimes…"):
+            matrix_res = run_scenario_matrix(base_sim_config=sim_cfg, base_eco_config=eco_cfg)
+            st.session_state.scenario_results = matrix_res
 
-    # ── Health Banner (st.success / st.warning / st.error) ───────────────
-    render_health_banner(diag.overall_health.value, diag.summary)
+    m_res = st.session_state.scenario_results
+    sum_df: pd.DataFrame = m_res["summary_df"]
+    prog_df: pd.DataFrame = m_res["progression_df"]
 
-    # ── Health Gauges ─────────────────────────────────────────────────────
-    hc_section("📡 Health Gauges")
+    # Comparative summary table
+    hc_section("📋 Multi-Scenario Comparative Summary")
+    st.dataframe(
+        sum_df[[
+            "Health Emoji", "Scenario", "Health Status", "Avg Gold", "Median Gold",
+            "Flow Ratio", "Gini", "Casual T1 Afford Day", "Casual Fail Rate %"
+        ]].style.format({
+            "Avg Gold": "{:,.1f}g",
+            "Median Gold": "{:,.1f}g",
+            "Flow Ratio": "{:.2f}×",
+            "Gini": "{:.4f}",
+            "Casual Fail Rate %": "{:.1f}%",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # Charts
+    hc_section("📈 Wealth Trajectories Across Regimes")
     st.plotly_chart(
-        plot_diagnostic_gauges(diag.flow_ratio, diag.gini, diag.casual_fail_rate),
-        use_container_width=True, config={"displayModeBar": False},
+        plot_scenario_comparison(prog_df),
+        use_container_width=True,
+        config={"displayModeBar": False},
     )
 
-    # ── Diagnostic Alert Callout Cards ───────────────────────────────────
-    hc_section("🚨 Diagnostic Alerts & Design Tips")
-    render_alert_cards(diag.alerts)
-
-    # ── Existing simulation charts (Dashboard & Health context) ───────────
-    hc_section("🧙 Archetype Progression (Context)")
+    hc_section("📊 Key Diagnostic Metrics Comparison")
     st.plotly_chart(
-        plot_archetype_progression(archetype_metrics, archetypes),
-        use_container_width=True, config={"displayModeBar": False},
+        plot_scenario_metrics_bar(sum_df),
+        use_container_width=True,
+        config={"displayModeBar": False},
     )
 
-    doc_c1, doc_c2 = st.columns(2, gap="medium")
-    with doc_c1:
-        hc_section("🎻 Wealth Distribution by Archetype")
-        st.plotly_chart(
-            plot_archetype_distribution(final_balances, archetype_ids, archetypes),
-            use_container_width=True, config={"displayModeBar": False},
+    # Per-scenario drill-down
+    with st.expander("🔍 Detailed Regime Diagnoses & Prescriptions", expanded=False):
+        for sc_name, sc_diag in m_res["diagnostics"].items():
+            st.markdown(f"#### {sc_name}")
+            st.caption(SCENARIO_DESCRIPTIONS.get(sc_name, ""))
+            render_alert_cards(sc_diag.alerts)
+            st.divider()
+
+
+# ============================================================
+# TAB 3 — MONTE CARLO RISK LAB
+# ============================================================
+
+with tab_monte_carlo:
+    st.markdown("### 🎲 Monte Carlo Risk Analysis Lab")
+    st.caption(
+        "Evaluate macroeconomic resilience across stochastic simulation iterations with "
+        "parameter jittering, confidence interval fan charts, and empirical risk quantification."
+    )
+
+    # Input controls
+    mc_c1, mc_c2, mc_c3, mc_c4 = st.columns(4)
+    with mc_c1:
+        mc_runs = st.slider("Iterations (M)", 20, 200, 50, step=10, help="Number of simulated economic paths.")
+    with mc_c2:
+        mc_volatility = st.slider(
+            "Macro Volatility (σ)", 5, 30, 15, step=1,
+            help="Standard deviation of macro shocks applied to quest rewards and potion costs.",
         )
-    with doc_c2:
-        hc_section("⏱️ Time-to-Afford Milestones")
+    with mc_c3:
+        mc_players = st.slider(
+            "Players per Run", 500, 2_000, 1_000, step=100,
+            help="Sample size of players per Monte Carlo iteration.",
+        )
+    with mc_c4:
+        st.markdown("<div style='margin-top:1.75rem;'></div>", unsafe_allow_html=True)
+        run_mc_btn = st.button("🎲 Run Monte Carlo Analysis", type="primary", use_container_width=True)
+
+    if run_mc_btn:
+        progress_bar = st.progress(0, text="Initializing Monte Carlo risk simulations…")
+
+        def _mc_progress(current: int, total: int):
+            frac = current / total
+            progress_bar.progress(frac, text=f"Executing run {current}/{total}…")
+
+        _mc_sim = dataclasses.replace(sim_cfg, num_players=int(mc_players))
+        mc_out = run_monte_carlo(
+            base_sim_config   = _mc_sim,
+            base_eco_config   = eco_cfg,
+            num_runs          = int(mc_runs),
+            volatility        = float(mc_volatility) / 100.0,
+            progress_callback = _mc_progress,
+        )
+        progress_bar.empty()
+        st.session_state.mc_result = mc_out
+
+    if "mc_result" in st.session_state:
+        mc: MonteCarloResult = st.session_state.mc_result
+
+        # KPI Metric Cards
+        hc_section("🎯 Empirical Risk Quantifications")
+        rk1, rk2, rk3, rk4 = st.columns(4)
+        with rk1:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-label">Inflation Risk P(Flow ≥ 1.5×)</div>
+                <div class="kpi-value {'kpi-rose' if mc.prob_inflation > 0.25 else 'kpi-teal'}">{mc.prob_inflation:.1%}</div>
+                <div class="kpi-sub">Runs exceeding inflation gate</div>
+            </div>""", unsafe_allow_html=True)
+        with rk2:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-label">Poverty Trap Risk P(Fail ≥ 40%)</div>
+                <div class="kpi-value {'kpi-rose' if mc.prob_poverty > 0.25 else 'kpi-teal'}">{mc.prob_poverty:.1%}</div>
+                <div class="kpi-sub">Runs with progression bottleneck</div>
+            </div>""", unsafe_allow_html=True)
+        with rk3:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-label">System Stability Index</div>
+                <div class="kpi-value {'kpi-teal' if mc.stability_score >= 0.70 else 'kpi-amber'}">{mc.stability_score:.1%}</div>
+                <div class="kpi-sub">Runs passing both risk gates</div>
+            </div>""", unsafe_allow_html=True)
+        with rk4:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-label">Execution Time</div>
+                <div class="kpi-value kpi-blue">{mc.elapsed_ms:.0f} ms</div>
+                <div class="kpi-sub">{mc.num_runs} runs · avg {mc.elapsed_ms/mc.num_runs:.1f}ms/run</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Plotly Fan Chart
+        hc_section("📉 Confidence Interval Fan Chart")
         st.plotly_chart(
-            plot_affordability_milestones(
-                time_to_afford, archetypes,
-                int(eco_cfg.tier_1_weapon_cost), int(eco_cfg.tier_2_weapon_cost),
-            ),
-            use_container_width=True, config={"displayModeBar": False},
+            plot_monte_carlo_fan_chart(mc),
+            use_container_width=True,
+            config={"displayModeBar": False},
         )
 
-    # — Metric detail table —
-    with st.expander("📋 Diagnostic Metric Details", expanded=False):
-        import pandas as pd
-        rows = [
-            {"Criterion": a.criterion, "Severity": a.severity.value,
-             "Metric": a.metric_label, "Value": f"{a.metric_value:.4f}"}
-            for a in diag.alerts
-        ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        # Risk Distribution & Quadrant Scatter
+        mc_r1, mc_r2 = st.columns(2, gap="medium")
+        with mc_r1:
+            hc_section("📈 Flow Ratio Risk Distribution")
+            st.plotly_chart(
+                plot_risk_distribution(mc),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+        with mc_r2:
+            hc_section("🎯 System Stability Quadrants")
+            st.plotly_chart(
+                plot_risk_scatter_or_cdf(mc),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+
+        # Raw runs table
+        with st.expander(f"📋 Monte Carlo Run Logs ({mc.num_runs} Iterations)", expanded=False):
+            st.dataframe(
+                mc.run_summaries.style.format({
+                    "quest_reward": "{:.1f}g",
+                    "potion_cost": "{:.1f}g",
+                    "flow_ratio": "{:.2f}×",
+                    "gini": "{:.4f}",
+                    "median_wealth": "{:,.0f}g",
+                    "casual_fail_rate": "{:.1%}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+    else:
+        st.info("Configure the Monte Carlo parameters above and click **🎲 Run Monte Carlo Analysis** to begin.")
+
 
 
 # ============================================================
