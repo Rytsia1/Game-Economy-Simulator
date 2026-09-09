@@ -37,29 +37,21 @@ _SEVERITY_STYLES: dict[str, dict] = {
         "color":    "#F87171",
         "bg":       "rgba(248,113,113,0.10)",
         "border":   "#F87171",
-        "icon":     "🔴",
-        "st_fn":    "error",
     },
     "WARNING": {
         "color":    "#FBBF24",
         "bg":       "rgba(251,191,36,0.10)",
         "border":   "#FBBF24",
-        "icon":     "🟡",
-        "st_fn":    "warning",
     },
     "INFO": {
         "color":    "#4F8EF7",
         "bg":       "rgba(79,142,247,0.08)",
         "border":   "#4F8EF7",
-        "icon":     "🔵",
-        "st_fn":    "info",
     },
     "OK": {
         "color":    "#00C9A7",
         "bg":       "rgba(0,201,167,0.08)",
         "border":   "#00C9A7",
-        "icon":     "🟢",
-        "st_fn":    "success",
     },
 }
 
@@ -84,7 +76,7 @@ _CSS = """
 .hc-alert-detail { font-size: 0.78rem; color: #8892AA; margin-bottom: 0.35rem; }
 .hc-alert-fix    { font-size: 0.78rem; border-top: 1px solid #2A2D3A;
                    padding-top: 0.3rem; color: #E0E4F0; }
-.hc-alert-fix::before { content: "💡 Fix: "; font-weight: 600; }
+.hc-alert-fix::before { content: "Fix: "; font-weight: 600; }
 
 /* Delta comparison row */
 .hc-delta-row {
@@ -131,8 +123,7 @@ def _inject_css() -> None:
 
 def render_health_banner(overall_health: str, summary: str) -> None:
     """
-    Render a top-of-page diagnostic summary banner using the appropriate
-    ``st.success / st.warning / st.error`` component.
+    Render a top-of-page diagnostic summary banner.
 
     Parameters
     ----------
@@ -140,12 +131,17 @@ def render_health_banner(overall_health: str, summary: str) -> None:
     summary        : str  One-line economy summary from DiagnosticReport.
     """
     _inject_css()
-    style  = _SEVERITY_STYLES.get(overall_health, _SEVERITY_STYLES["INFO"])
-    label  = _OVERALL_LABELS.get(overall_health, overall_health)
-    fn_name = style["st_fn"]
-    icon    = style["icon"]
-    getattr(st, fn_name)(
-        f"{icon} **{label}** — {summary}"
+    label   = _OVERALL_LABELS.get(overall_health, overall_health)
+    style   = _SEVERITY_STYLES.get(overall_health, _SEVERITY_STYLES["INFO"])
+    color   = style["color"]
+    bg      = style["bg"]
+    border  = style["border"]
+    st.markdown(
+        f"""<div style="border-left: 4px solid {border}; background: {bg}; border-radius: 8px; padding: 0.9rem 1.2rem; margin-bottom: 1rem;">
+            <div style="font-weight: 700; color: {color}; font-size: 1rem; margin-bottom: 0.2rem;">{label}</div>
+            <div style="color: #E0E4F0; font-size: 0.85rem;">{summary}</div>
+        </div>""",
+        unsafe_allow_html=True,
     )
 
 
@@ -170,13 +166,12 @@ def render_alert_cards(alerts: list) -> None:
         style   = _SEVERITY_STYLES.get(sev_key, _SEVERITY_STYLES["INFO"])
         color   = style["color"]
         bg      = style["bg"]
-        icon    = style["icon"]
 
         st.markdown(
             f"""<div class="hc-alert-card"
                      style="border-left-color:{color}; background:{bg};">
                 <div class="hc-alert-title" style="color:{color};">
-                    {icon}&nbsp;[{sev_key}]&nbsp;{alert.title}
+                    [{sev_key}] {alert.title}
                 </div>
                 <div class="hc-alert-detail">{alert.detail}</div>
                 <div class="hc-alert-fix">{alert.recommendation}</div>
@@ -202,8 +197,8 @@ def render_tuner_delta(
     Render a "Current → Recommended" delta comparison widget.
 
     Shows:
-      • Parameter delta: Current 50 Gold → Recommended 68 Gold (+36%)
-      • Milestone delta: Was Day 28 → Now Day 20 (target achieved)
+      - Parameter delta: Current 50 Gold -> Recommended 68 Gold (+36%)
+      - Milestone delta: Was Day 28 -> Now Day 20 (target achieved)
 
     Parameters
     ----------
@@ -226,11 +221,11 @@ def render_tuner_delta(
     new_day_str = f"Day {new_day}" if new_day else "Never"
 
     if new_day is not None and new_day <= target_day:
-        milestone_badge = f'<span class="hc-delta-badge">✅ Target hit</span>'
+        milestone_badge = '<span class="hc-delta-badge">Target hit</span>'
     elif converged:
-        milestone_badge = f'<span class="hc-delta-badge" style="color:#FBBF24;background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3);">⚠️ ±{abs((new_day or 0) - target_day)}d residual</span>'
+        milestone_badge = f'<span class="hc-delta-badge" style="color:#FBBF24;background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.3);">±{abs((new_day or 0) - target_day)}d residual</span>'
     else:
-        milestone_badge = f'<span class="hc-delta-badge" style="color:#F87171;background:rgba(248,113,113,0.12);border-color:rgba(248,113,113,0.3);">❌ Not converged</span>'
+        milestone_badge = '<span class="hc-delta-badge" style="color:#F87171;background:rgba(248,113,113,0.12);border-color:rgba(248,113,113,0.3);">Not converged</span>'
 
     st.markdown(
         f"""<div class="hc-delta-row">
@@ -303,3 +298,35 @@ def section_title(text: str) -> None:
         f"padding-bottom:0.4rem;border-bottom:1px solid #2A2D3A;'>{text}</div>",
         unsafe_allow_html=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Notification Box Helper
+# ---------------------------------------------------------------------------
+
+def render_notification_box(message: str, level: str = "info") -> None:
+    """
+    Render a clean styled notification container without icons or circle graphics.
+
+    Parameters
+    ----------
+    message : str
+        Markdown/HTML formatted string.
+    level : str
+        One of 'info', 'success', 'warning', 'error'.
+    """
+    _inject_css()
+    palette = {
+        "info":    {"border": "#4F8EF7", "bg": "rgba(79, 142, 247, 0.08)", "color": "#4F8EF7"},
+        "success": {"border": "#00C9A7", "bg": "rgba(0, 201, 167, 0.08)",  "color": "#00C9A7"},
+        "warning": {"border": "#FBBF24", "bg": "rgba(251, 191, 36, 0.10)", "color": "#FBBF24"},
+        "error":   {"border": "#F87171", "bg": "rgba(248, 113, 113, 0.10)", "color": "#F87171"},
+    }
+    c = palette.get(level, palette["info"])
+    st.markdown(
+        f"""<div style="border-left: 4px solid {c['border']}; background: {c['bg']}; border-radius: 8px; padding: 0.8rem 1.1rem; margin: 0.8rem 0; color: #E0E4F0; font-size: 0.85rem; line-height: 1.45;">
+            {message}
+        </div>""",
+        unsafe_allow_html=True,
+    )
+

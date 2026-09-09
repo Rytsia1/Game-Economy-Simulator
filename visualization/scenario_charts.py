@@ -115,7 +115,7 @@ def plot_scenario_comparison(progression_df: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text="🧪 Scenario Stress-Test: Wealth Trajectories", font=dict(size=18)),
+            title=dict(text="Scenario Stress-Test: Wealth Trajectories", font=dict(size=18)),
             xaxis=dict(title="Simulation Day", **_AXIS_STYLE),
             yaxis=dict(title="Median Player Wealth (Gold)", **_AXIS_STYLE),
             height=440,
@@ -183,7 +183,7 @@ def plot_scenario_metrics_bar(summary_df: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text="📊 Comparative Macroeconomic Metrics", font=dict(size=18)),
+            title=dict(text="Comparative Macroeconomic Metrics", font=dict(size=18)),
             height=320,
             showlegend=False,
             margin=dict(l=40, r=20, t=60, b=50),
@@ -291,7 +291,7 @@ def plot_monte_carlo_fan_chart(mc_result: MonteCarloResult) -> go.Figure:
     fig.update_layout(
         **_base_layout(
             title=dict(
-                text=f"🎲 Monte Carlo Fan Chart (M={mc_result.num_runs} Runs, Volatility={mc_result.volatility:.0%})",
+                text=f"Monte Carlo Fan Chart (M={mc_result.num_runs} Runs, Volatility={mc_result.volatility:.0%})",
                 font=dict(size=18),
             ),
             xaxis=dict(title="Simulation Day", **_AXIS_STYLE),
@@ -351,7 +351,7 @@ def plot_risk_distribution(mc_result: MonteCarloResult) -> go.Figure:
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text="📈 Macro Flow Ratio Risk Distribution", font=dict(size=18)),
+            title=dict(text="Macro Flow Ratio Risk Distribution", font=dict(size=18)),
             xaxis=dict(title="Flow Ratio (Income / Sinks)", **_AXIS_STYLE),
             yaxis=dict(title="Number of Simulated Runs", **_AXIS_STYLE),
             height=340,
@@ -421,7 +421,7 @@ def plot_risk_scatter_or_cdf(mc_result: MonteCarloResult) -> go.Figure:
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text="🎯 System Stability Quadrants", font=dict(size=18)),
+            title=dict(text="System Stability Quadrants", font=dict(size=18)),
             xaxis=dict(title="Flow Ratio (Income / Sinks)", **_AXIS_STYLE),
             yaxis=dict(title="Casual Fail Rate (%)", **_AXIS_STYLE),
             height=340,

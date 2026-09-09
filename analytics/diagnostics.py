@@ -46,12 +46,12 @@ class Severity(str, Enum):
     OK       = "OK"
 
     @property
-    def emoji(self) -> str:
+    def tag(self) -> str:
         return {
-            "CRITICAL": "🔴",
-            "WARNING":  "🟡",
-            "INFO":     "🔵",
-            "OK":       "🟢",
+            "CRITICAL": "[CRITICAL]",
+            "WARNING":  "[WARNING]",
+            "INFO":     "[INFO]",
+            "OK":       "[OK]",
         }[self.value]
 
     @property

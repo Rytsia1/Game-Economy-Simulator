@@ -45,7 +45,7 @@ class ArchetypeProfile:
 
 
 # ---------------------------------------------------------------------------
-# Default Archetype Roster  (Casual 50 · Grinder 25 · Collector 15 · Optimizer 10)
+# Default Archetype Roster  (Casual 50, Grinder 25, Collector 15, Optimizer 10)
 # ---------------------------------------------------------------------------
 
 DEFAULT_ARCHETYPES: List[ArchetypeProfile] = [

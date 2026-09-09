@@ -105,7 +105,7 @@ def plot_wealth_progression(df_metrics: pd.DataFrame) -> go.Figure:
     ))
 
     fig.update_layout(
-        **_base_layout(title=dict(text="💰 Wealth Progression Over Time", font=dict(size=18))),
+        **_base_layout(title=dict(text="Wealth Progression Over Time", font=dict(size=18))),
         xaxis=dict(title="Day", **_AXIS_STYLE),
         yaxis=dict(title="Gold Balance", **_AXIS_STYLE, tickformat=","),
         hovermode="x unified",
@@ -157,7 +157,7 @@ def plot_wealth_distribution(final_balances: np.ndarray) -> go.Figure:
                       annotation_position="top right")
 
     fig.update_layout(
-        **_base_layout(title=dict(text="📊 Final Day Wealth Distribution", font=dict(size=18))),
+        **_base_layout(title=dict(text="Final Day Wealth Distribution", font=dict(size=18))),
         xaxis=dict(title="Gold Balance", **_AXIS_STYLE, tickformat=","),
         yaxis=dict(title="Number of Players", **_AXIS_STYLE),
         yaxis2=dict(title="Density", **_AXIS_STYLE, showgrid=False),
@@ -213,7 +213,7 @@ def plot_inflow_outflow(df_metrics: pd.DataFrame) -> go.Figure:
     ), row=2, col=1)
 
     fig.update_layout(
-        **_base_layout(title=dict(text="⚖️ Gold Inflow vs Outflow", font=dict(size=18))),
+        **_base_layout(title=dict(text="Gold Inflow vs Outflow", font=dict(size=18))),
         xaxis2=dict(title="Day", **_AXIS_STYLE),
         yaxis=dict(title="Gold (total, all players)", **_AXIS_STYLE, tickformat=","),
         yaxis2=dict(title="Net Gold", **_AXIS_STYLE, tickformat=","),
@@ -267,7 +267,7 @@ def plot_archetype_progression(
         ))
 
     fig.update_layout(
-        **_base_layout(title=dict(text="🧙 Archetype Wealth Trajectories (Median)", font=dict(size=18))),
+        **_base_layout(title=dict(text="Archetype Wealth Trajectories (Median)", font=dict(size=18))),
         xaxis=dict(title="Day", **_AXIS_STYLE),
         yaxis=dict(title="Median Gold Balance", **_AXIS_STYLE, tickformat=","),
         hovermode="x unified",
@@ -317,7 +317,7 @@ def plot_archetype_distribution(
         ))
 
     fig.update_layout(
-        **_base_layout(title=dict(text="🎻 Final Day Wealth by Archetype", font=dict(size=18))),
+        **_base_layout(title=dict(text="Final Day Wealth by Archetype", font=dict(size=18))),
         yaxis=dict(title="Gold Balance (Final Day)", **_AXIS_STYLE, tickformat=","),
         xaxis=dict(**_AXIS_STYLE),
         violingap=0.15,
@@ -385,7 +385,7 @@ def plot_affordability_milestones(
     ))
 
     fig.update_layout(
-        **_base_layout(title=dict(text="⏱️ Days Until 50% of Archetype Can Afford Gear", font=dict(size=18))),
+        **_base_layout(title=dict(text="Days Until 50% of Archetype Can Afford Gear", font=dict(size=18))),
         xaxis=dict(title="Archetype", **_AXIS_STYLE),
         yaxis=dict(title="Day", **_AXIS_STYLE),
         barmode="group",
@@ -545,7 +545,7 @@ def plot_diagnostic_gauges(
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text="🩺 Economy Health Gauges", font=dict(size=18)),
+            title=dict(text="Economy Health Gauges", font=dict(size=18)),
             height=300,
             margin=dict(l=30, r=30, t=70, b=20),
         ),
@@ -622,7 +622,7 @@ def plot_tuner_convergence(probes: list, target_day: int, param_name: str) -> go
 
     fig.update_layout(
         **_base_layout(
-            title=dict(text=f"🔍 Auto-Tuner Convergence — {param_name}", font=dict(size=18))
+            title=dict(text=f"Auto-Tuner Convergence — {param_name}", font=dict(size=18))
         ),
         xaxis2=dict(title="Iteration", **_AXIS_STYLE),
         yaxis=dict(title="Milestone Day", **_AXIS_STYLE),
@@ -706,7 +706,7 @@ def plot_tuner_sensitivity(
     fig.update_layout(
         **_base_layout(
             title=dict(
-                text=f"📉 Sensitivity: {archetype_name} T1 Day vs {param_name}",
+                text=f"Sensitivity: {archetype_name} T1 Day vs {param_name}",
                 font=dict(size=18),
             )
         ),

@@ -217,7 +217,7 @@ def run_scenario_matrix(
             "Flow Ratio":           round(flow_ratio, 2),
             "Casual T1 Afford Day": casual_t1_str,
             "Health Status":        diag.overall_health.value,
-            "Health Emoji":         diag.overall_health.emoji,
+            "Health Indicator":     diag.overall_health.tag,
             "Casual Fail Rate %":   round(diag.casual_fail_rate * 100, 1),
         })
 
