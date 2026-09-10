@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
 [![NumPy](https://img.shields.io/badge/Core-NumPy%20Vectorized-013243.svg)](https://numpy.org/)
-[![Tests](https://img.shields.io/badge/Tests-154%20Passed-00C9A7.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-158%20Passed-00C9A7.svg)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -122,7 +122,8 @@ game-economy-simulator/
 │   ├── test_diagnostics.py  # Gini & flow ratio rule verification
 │   ├── test_optimizer.py    # Monotonicity & convergence tests
 │   ├── test_scenarios.py    # Scenario matrix configuration tests
-│   └── test_monte_carlo.py  # Fan chart percentiles & risk metric tests
+│   ├── test_monte_carlo.py  # Fan chart percentiles & risk metric tests
+│   └── test_integration.py  # Multi-module end-to-end integration tests
 ├── app.py                   # Streamlit multi-tab analytical cockpit
 ├── requirements.txt         # Dependencies (Streamlit, NumPy, Pandas, Plotly, Pytest)
 └── validate.py              # Command-line benchmark & diagnostic verification script
@@ -155,7 +156,7 @@ pip install -r requirements.txt
 
 ### Verification & Unit Tests
 ```bash
-# Run complete test suite (154 tests)
+# Run complete test suite (158 tests)
 pytest tests/ -v
 
 # Run command-line validation script (prints benchmarks and diagnostics)
@@ -174,7 +175,7 @@ streamlit run app.py
 - **Computational Core**: NumPy (Vectorized matrix broadcasting, vectorized random draws), Pandas
 - **Interactive Cockpit**: Streamlit (Session state caching, custom CSS styling)
 - **Visual Analytics**: Plotly Graph Objects (Multi-percentile fan charts, violin distributions, quadrant scatter plots)
-- **Quality Assurance**: Pytest (154 unit tests covering vectorization invariants, convergence bounds, and edge cases)
+- **Quality Assurance**: Pytest (158 unit & integration tests covering vectorization invariants, convergence bounds, and edge cases)
 
 ---
 
