@@ -130,15 +130,17 @@ def run_simulation(
     # ------------------------------------------------------------------
     if sim_config.stochastic_mode:
         # --- Quest completions: Poisson(λ = archetype_quests) ---
-        # Broadcasting: rng.poisson expects integer or float lam; pass (P,1)
-        # array to get (P, D) draws in one call.
+        # Broadcasting: rng.poisson accepts a (P, 1) lam array and broadcasts
+        # it to (P, D) draws in one call — no temporary ones-matrix needed.
         quests_matrix = rng.poisson(
-            lam=base_quests_per_player[:, np.newaxis] * np.ones((1, D)),
+            lam=base_quests_per_player[:, None],
+            size=(P, D),
         ).astype(np.float64)   # [P × D]
 
         # --- Enemy counts: Poisson(λ = archetype_enemies) ---
         enemies_matrix = rng.poisson(
-            lam=base_enemies_per_player[:, np.newaxis] * np.ones((1, D)),
+            lam=base_enemies_per_player[:, None],
+            size=(P, D),
         ).astype(np.float64)   # [P × D]
 
         # --- Per-enemy gold drops: clipped Normal(μ=enemy_reward, σ=25%μ) ---
@@ -161,7 +163,8 @@ def run_simulation(
 
         # --- Daily potion spend: Poisson draws capped at 0 min ---
         potions_matrix = rng.poisson(
-            lam=base_potions_per_player[:, np.newaxis] * np.ones((1, D)),
+            lam=base_potions_per_player[:, None],
+            size=(P, D),
         ).astype(np.float64)   # [P × D]
         potion_spend_matrix = potions_matrix * eco_config.potion_cost  # [P × D]
 
@@ -180,11 +183,11 @@ def run_simulation(
             base_income_per_player[:, np.newaxis] + noise, 0.0
         )  # [P × D]
 
-        potion_spend_matrix = (
-            base_potions_per_player[:, np.newaxis]
-            * eco_config.potion_cost
-            * np.ones((P, D))
-        )  # [P × D]
+        # (P,) * scalar → (P,); broadcast to (P, D) without a full allocation.
+        daily_potion_spend = base_potions_per_player * eco_config.potion_cost  # [P]
+        potion_spend_matrix = np.broadcast_to(
+            daily_potion_spend[:, None], (P, D)
+        )  # [P × D]  — read-only view, no copy
 
     # ------------------------------------------------------------------
     # 3.  Weapon purchase threshold per player  [P]
