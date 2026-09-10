@@ -14,7 +14,6 @@ Evaluates macro stability and regime resilience across M iterations:
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import time
 from dataclasses import dataclass, field
@@ -131,10 +130,14 @@ def run_monte_carlo(
         jittered_quest = max(1.0, float(rng.normal(mu_quest, sigma_quest)))
         jittered_potion = max(1.0, float(rng.normal(mu_potion, sigma_potion)))
 
-        # Create cloned configs for this run
-        run_eco = copy.deepcopy(base_eco_config)
-        run_eco.quest_reward = jittered_quest
-        run_eco.potion_cost = jittered_potion
+        # Build per-run config with only the two jittered parameters changed.
+        # dataclasses.replace is more efficient than deepcopy here because the
+        # archetypes list is read-only during simulation and need not be cloned.
+        run_eco = dataclasses.replace(
+            base_eco_config,
+            quest_reward=jittered_quest,
+            potion_cost=jittered_potion,
+        )
 
         # Run independent stochastic simulation
         run_sim = dataclasses.replace(
