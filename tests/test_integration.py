@@ -239,6 +239,10 @@ class TestSimulationToOptimizerPipeline:
         assert tuner_result.elapsed_ms > 0.0
         assert tuner_result.validation_elapsed_ms > 0.0
         assert tuner_result.residual >= 0.0
+        assert isinstance(tuner_result.target_unreachable, bool)
+        # unreachable target must never be marked converged
+        if tuner_result.target_unreachable:
+            assert not tuner_result.converged
 
         # Probe history structure
         for probe in tuner_result.probes:

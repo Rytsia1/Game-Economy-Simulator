@@ -5,18 +5,22 @@ Dedicated test suite for ``analytics/optimizer.py``.
 
 Covers
 ~~~~~~
-1. TunerResult data model integrity.
-2. Best value always stays within the declared search bounds.
-3. Probe log is populated and respects max_iterations.
-4. Monotonicity invariant: higher income → earlier milestone day.
-5. Convergence within ±1 day of target under standard bounds.
-6. Cost-parameter direction inversion (potion_cost).
-7. Invalid parameter name raises ValueError.
-8. Reversed search bounds raise ValueError.
-9. Performance: full tune finishes in under 2 000 ms.
+1.  TunerResult data model integrity.
+2.  Best value always stays within the declared search bounds.
+3.  Probe log is populated and respects max_iterations.
+4.  Monotonicity invariant: higher income -> earlier milestone day.
+5.  Convergence within +-1 day of target under standard bounds.
+6.  Cost-parameter direction inversion (potion_cost).
+7.  Invalid parameter name raises ValueError.
+8.  Reversed search bounds raise ValueError.
+9.  Performance: full tune finishes in under 2 000 ms.
 10. Validation run uses full player count (not probe count).
 11. TunerProbe fields are correctly populated.
 12. tune_parameter is deterministic for same seed.
+13. Invalid archetype name raises ValueError.
+14. search_lo <= 0 raises ValueError.
+15. target_day < 1 raises ValueError.
+16. target_unreachable=True when milestone cannot be reached.
 """
 
 from __future__ import annotations
@@ -107,10 +111,21 @@ class TestTunerResultModel:
         assert hasattr(r, "achieved_day")
         assert hasattr(r, "residual")
         assert hasattr(r, "converged")
+        assert hasattr(r, "target_unreachable")
         assert hasattr(r, "iterations")
         assert hasattr(r, "probes")
         assert hasattr(r, "elapsed_ms")
         assert hasattr(r, "validation_elapsed_ms")
+
+    def test_target_unreachable_is_bool(self, balanced_eco, full_sim):
+        r = _quick_tune(balanced_eco, full_sim)
+        assert isinstance(r.target_unreachable, bool)
+
+    def test_unreachable_implies_not_converged(self, balanced_eco, full_sim):
+        """target_unreachable=True must always produce converged=False."""
+        r = _quick_tune(balanced_eco, full_sim)
+        if r.target_unreachable:
+            assert not r.converged
 
     def test_param_name_stored(self, balanced_eco, full_sim):
         result = _quick_tune(balanced_eco, full_sim, param_name="quest_reward")
@@ -322,9 +337,13 @@ class TestConvergence:
             assert result.residual <= 1.0, (
                 "converged=True but residual > 1 day"
             )
+            assert not result.target_unreachable, (
+                "converged=True implies the milestone was reached"
+            )
         else:
-            # Not converged is acceptable — just verify the flag is consistent
-            assert result.residual > 1.0 or result.achieved_day is None
+            # Not converged: either residual is too large, or the milestone
+            # was never reached within the simulation window.
+            assert result.residual > 1.0 or result.target_unreachable
 
 
 # ===========================================================================
@@ -395,6 +414,78 @@ class TestInputValidation:
                 search_lo=10.0, search_hi=200.0,
                 target_tier=5,   # invalid — only 1 or 2 supported
             )
+
+    def test_invalid_archetype_raises_value_error(self, balanced_eco, full_sim):
+        """An unknown archetype name must raise ValueError immediately."""
+        with pytest.raises(ValueError, match="target_archetype"):
+            tune_parameter(
+                eco_config=balanced_eco, sim_config=full_sim,
+                param_name="quest_reward",
+                search_lo=10.0, search_hi=200.0,
+                target_archetype="Berserker",  # not in DEFAULT_ARCHETYPES
+            )
+
+    def test_non_positive_search_lo_raises_value_error(self, balanced_eco, full_sim):
+        """search_lo <= 0 must raise ValueError; parameter values must be positive."""
+        with pytest.raises(ValueError, match="search_lo"):
+            tune_parameter(
+                eco_config=balanced_eco, sim_config=full_sim,
+                param_name="quest_reward",
+                search_lo=0.0, search_hi=200.0,
+            )
+
+    def test_zero_target_day_raises_value_error(self, balanced_eco, full_sim):
+        """target_day < 1 must raise ValueError; Day 0 does not exist."""
+        with pytest.raises(ValueError, match="target_day"):
+            tune_parameter(
+                eco_config=balanced_eco, sim_config=full_sim,
+                param_name="quest_reward",
+                search_lo=10.0, search_hi=200.0,
+                target_day=0,
+            )
+
+
+# ===========================================================================
+# 13. Unreachable target flag
+# ===========================================================================
+
+class TestUnreachableTarget:
+    def test_target_unreachable_set_when_milestone_never_reached(self):
+        """
+        When even the highest income in the search range cannot push the
+        milestone within the simulation window, target_unreachable must be
+        True and converged must be False.
+        """
+        eco = EconomyConfig(
+            quest_reward=1.0,        # intentionally tiny
+            quests_per_day=1.0,
+            enemy_reward=1.0,
+            enemies_per_day=1.0,
+            potion_cost=50.0,        # heavy sink relative to income
+            potions_per_day=5.0,
+            tier_1_weapon_cost=999_999,  # impossibly high threshold
+            tier_2_weapon_cost=9_999_999,
+        )
+        sim = SimulationConfig(
+            num_players=200, days=5,  # very short window
+            starting_gold=0.0,
+            random_seed=42, stochastic_mode=True,
+        )
+        result = tune_parameter(
+            eco_config=eco, sim_config=sim,
+            param_name="quest_reward",
+            search_lo=1.0, search_hi=10.0,  # narrow range, all still unreachable
+            target_archetype="Casual",
+            target_tier=1,
+            target_day=3,
+            probe_players=100,
+            max_iterations=5,
+        )
+        assert result.target_unreachable is True, (
+            "Expected target_unreachable=True for an impossible milestone, "
+            f"but got achieved_day={result.achieved_day}"
+        )
+        assert result.converged is False
 
 
 # ===========================================================================
