@@ -69,7 +69,7 @@ tuner_result = tune_parameter(
     max_iterations   = 15,
 )
 print(f"Target           : Casual Tier-2 Affordability by Day 35")
-print(f"Optimal Value    : quest_reward = {tuner_result.best_value:.2f}g")
+print(f"Recommended Value : quest_reward = {tuner_result.best_value:.2f}g (approximate heuristic)")
 print(f"Achieved Day     : Day {tuner_result.achieved_day} (Residual: {tuner_result.residual:.1f}d)")
 print(f"Converged        : {tuner_result.converged} in {tuner_result.iterations} iterations")
 print(f"Total Tuner Time : {tuner_result.elapsed_ms:.1f} ms (Target: < 2000 ms)")

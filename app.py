@@ -1,10 +1,11 @@
 """
-app.py — Game Economy Simulator  (Phase 3 | v0.3)
-==================================================
-Streamlit dashboard with three tabs:
-  Tab 1 – Simulation    : All v0.2 archetype + wealth charts
-  Tab 2 – Economy Doctor: Diagnostic gauges, alert cards, prescriptions
-  Tab 3 – Auto-Tuner    : Binary-search solver UI with convergence chart
+app.py — Game Economy Simulator  (v0.4)
+========================================
+Streamlit dashboard with four tabs:
+  Tab 1 – Dashboard & Health  : Simulation charts + Economy Doctor diagnostics
+  Tab 2 – Scenario Stress-Test: 4-regime comparative stress-testing matrix
+  Tab 3 – Monte Carlo Risk Lab: 100-run fan charts & empirical risk probabilities
+  Tab 4 – Auto-Tuning Lab     : Binary-search parameter solver UI
 
 Run with:
     streamlit run app.py
@@ -169,7 +170,7 @@ hr { border-color: var(--border) !important; }
 with st.sidebar:
     st.markdown(
         "<h2 style='margin:0 0 0.2rem 0;font-size:1.2rem;'>Economy Simulator</h2>"
-        "<p style='font-size:0.75rem;color:#8892AA;margin-bottom:1.2rem;'>Phase 3 | v0.3 — Doctor + Tuner</p>",
+        "<p style='font-size:0.75rem;color:#8892AA;margin-bottom:1.2rem;'>v0.4 — Sim + Doctor + Tuner + Stress + Monte Carlo</p>",
         unsafe_allow_html=True,
     )
 
@@ -372,14 +373,6 @@ with hdr_r:
     )
 
 st.markdown("<hr style='margin:0.6rem 0 1rem 0;'>", unsafe_allow_html=True)
-
-# ---------------------------------------------------------------------------
-# Tabs
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Tabs
-# ---------------------------------------------------------------------------
 
 tab_dashboard, tab_scenarios, tab_monte_carlo, tab_tuner = st.tabs(
     [

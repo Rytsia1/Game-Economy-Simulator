@@ -109,6 +109,9 @@ class DiagnosticReport:
     flow_ratio:        float
     gini:              float
     casual_fail_rate:  float
+    """Approximate fraction of Casual players that did not hit Tier 1
+    within the target window. Derived from the median trajectory rather
+    than per-player hit-day counts; treat as a heuristic estimate."""
     casual_target_day: int
     overall_health:    Severity
     summary:           str
@@ -296,7 +299,7 @@ def _check_progression_bottleneck(
 
     if casual_fail_rate > _POVERTY_FAIL_RATE_WARN:
         return DiagnosticAlert(
-            criterion="PROGRESSION_BLOCKER",
+            criterion="PROGRESSION_GATE",
             severity=Severity.WARNING,
             title=f"Progression Bottleneck — {pct:.1f}% of Casual players miss Tier-1 deadline",
             detail=(
@@ -316,7 +319,7 @@ def _check_progression_bottleneck(
 
     if casual_fail_rate > 0.15:
         return DiagnosticAlert(
-            criterion="PROGRESSION_BOTTLENECK",
+            criterion="PROGRESSION_GATE",
             severity=Severity.INFO,
             title=f"Mild Progression Friction — {pct:.1f}% of Casuals miss Tier-1 target",
             detail=(
